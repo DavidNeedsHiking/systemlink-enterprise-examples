@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>SystemLink Notebook Automation Guide</title>
+    <style>
+        body { font-family: Calibri, Arial, sans-serif; max-width: 850px; margin: 40px auto; padding: 20px; line-height: 1.6; font-size: 11pt; }
+        h1 { color: #1a5490; border-bottom: 3px solid #1a5490; padding-bottom: 10px; page-break-before: always; }
+        h1:first-of-type { page-break-before: avoid; }
+        h2 { color: #2c7bb6; margin-top: 30px; border-bottom: 1px solid #2c7bb6; padding-bottom: 5px; }
+        h3 { color: #4a4a4a; margin-top: 20px; }
+        table { border-collapse: collapse; width: 100%; margin: 15px 0; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #1a5490; color: white; }
+        tr:nth-child(even) { background-color: #f9f9f9; }
+        code { background-color: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-family: Consolas, monospace; font-size: 10pt; }
+        pre { background-color: #f4f4f4; padding: 15px; border-radius: 5px; overflow-x: auto; font-family: Consolas, monospace; font-size: 10pt; border-left: 4px solid #1a5490; }
+        .meta { color: #666; font-size: 0.95em; margin-bottom: 20px; }
+        .highlight { background-color: #e8f4f8; padding: 15px; border-left: 4px solid #1a5490; margin: 15px 0; }
+        .audience { background-color: #fff3cd; padding: 10px 15px; border-left: 4px solid #ffc107; margin: 15px 0; font-style: italic; }
+        .toc { background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0; }
+        .toc ul { margin: 5px 0; }
+        .toc li { margin: 5px 0; }
+        hr { margin: 30px 0; border: none; border-top: 2px solid #eee; }
+    </style>
+</head>
+<body>
+
+<h1>SystemLink Notebook Automation Guide</h1>
+
+<p class="meta">
+    A comprehensive guide for creating and using automated Jupyter notebooks in NI SystemLink Enterprise.<br><br>
+    <strong>Last Updated:</strong> February 6, 2026<br>
+    <strong>Applies to:</strong> SystemLink Enterprise 2024+
+</p>
+
+<div class="toc">
+    <strong>Table of Contents</strong>
+    <ol>
+        <li><a href="#quickstart">Quick Start (Users)</a></li>
+        <li><a href="#creating">Creating Automated Notebooks</a>
+            <ul>
+                <li>Understanding the Parameters Cell</li>
+                <li>Defining Inputs (Parameters)</li>
+                <li>Defining Outputs (Scrapbook)</li>
+            </ul>
+        </li>
+        <li><a href="#examples">Complete Examples</a></li>
+        <li><a href="#reference">Reference</a></li>
+        <li><a href="#troubleshooting">Troubleshooting</a></li>
+    </ol>
+</div>
+
+<hr>
+
+<h2 id="quickstart">1. Quick Start (Users)</h2>
+
+<div class="audience">
+    <strong>Audience:</strong> Test Engineers, Technicians, Validation Engineers
+</div>
+
+<p>If you're running an existing automated notebook and need to understand parameters:</p>
+
+<h3>Finding Parameters in a Notebook</h3>
+<ol>
+    <li>Look for a cell with the comment <code>#parameters</code> at the top</li>
+    <li>The cell will have a <strong>tag</strong> <code>parameters</code> visible in the cell metadata</li>
+    <li>Parameters are defined as Python variables with default values</li>
+</ol>
+
+<h3>Example Parameters Cell</h3>
+<pre>
+#parameters
+file_ids = []           # List of file IDs to process
+part_number = ""        # Part number for the analysis
+discipline = "Thermal"  # Analysis discipline
+</pre>
+
+<h3>How Parameters Are Passed</h3>
+<p>When SystemLink executes the notebook:</p>
+<ol>
+    <li>It reads the parameter definitions from cell metadata</li>
+    <li>Injects new values based on your workflow configuration</li>
+    <li>Executes the notebook with those values</li>
+</ol>
+
+<div class="highlight">
+    <strong>You don't modify parameters manually</strong> - SystemLink handles this through:
+    <ul>
+        <li>Test Plan automations</li>
+        <li>Work Item automations</li>
+        <li>Scheduled executions</li>
+        <li>Manual execution via Notebook Execution API</li>
+    </ul>
+</div>
+
+<hr>
+
+<h2 id="creating">2. Creating Automated Notebooks</h2>
+
+<div class="audience">
+    <strong>Audience:</strong> Application Engineers, Data Scientists, Solution Architects
+</div>
+
+<h3>Understanding the Parameters Cell</h3>
+<p>The parameters cell is the <strong>single source of truth</strong> for both inputs AND outputs. It uses:</p>
+
+<table>
+    <tr><th>Technology</th><th>Purpose</th></tr>
+    <tr><td><strong>Papermill</strong></td><td>Parameter injection at runtime</td></tr>
+    <tr><td><strong>SystemLink Metadata</strong></td><td>UI integration, type definitions</td></tr>
+    <tr><td><strong>Scrapbook</strong></td><td>Output capture and retrieval</td></tr>
+</table>
+
+<h3>The Metadata Structure</h3>
+<pre>
+{
+  "tags": ["parameters"],
+  "papermill": {
+    "parameters": {
+      "file_ids": [],
+      "part_number": ""
+    }
+  },
+  "systemlink": {
+    "version": 2,
+    "interfaces": ["ni-files"],
+    "parameters": [...],
+    "outputs": [...]
+  }
+}
+</pre>
+
+<h3>Defining Inputs (Parameters)</h3>
+
+<h4>Step 1: Create the Parameters Cell</h4>
+<p>Add a code cell with <code>#parameters</code> comment:</p>
+<pre>
+#parameters
+file_ids = []
+part_number = ""
+notebook_id = ""
+</pre>
+
+<h4>Step 2: Add the <code>parameters</code> Tag</h4>
+<p>In VS Code:</p>
+<ol>
+    <li>Click on the cell</li>
+    <li>Open cell metadata (wrench icon or <code>...</code> menu)</li>
+    <li>Add tag: <code>parameters</code></li>
+</ol>
+
+<h4>Step 3: Define SystemLink Metadata</h4>
+<pre>
+{
+  "systemlink": {
+    "version": 2,
+    "interfaces": ["ni-files"],
+    "parameters": [
+      {
+        "id": "file_ids",
+        "display_name": "File IDs",
+        "type": "string[]"
+      },
+      {
+        "id": "part_number",
+        "display_name": "Part Number",
+        "type": "string"
+      }
+    ]
+  }
+}
+</pre>
+
+<h4>Supported Parameter Types</h4>
+<table>
+    <tr><th>Type</th><th>Python</th><th>Description</th></tr>
+    <tr><td><code>string</code></td><td>str</td><td>Single text value</td></tr>
+    <tr><td><code>string[]</code></td><td>list[str]</td><td>List of strings (e.g., file_ids)</td></tr>
+    <tr><td><code>number</code></td><td>int, float</td><td>Numeric value</td></tr>
+    <tr><td><code>boolean</code></td><td>bool</td><td>True/False</td></tr>
+</table>
+
+<h4>Common Interfaces</h4>
+<table>
+    <tr><th>Interface</th><th>When to Use</th></tr>
+    <tr><td><code>ni-files</code></td><td>Notebook processes files from File Service</td></tr>
+    <tr><td><code>ni-testmonitor</code></td><td>Notebook processes test results</td></tr>
+    <tr><td><code>ni-assets</code></td><td>Notebook processes assets</td></tr>
+</table>
+
+<h3>Defining Outputs (Scrapbook)</h3>
+<p>Outputs are defined in <strong>two places</strong>:</p>
+<ol>
+    <li><strong>Metadata</strong> - declares what outputs exist (for SystemLink UI)</li>
+    <li><strong>Code</strong> - uses scrapbook to capture actual values</li>
+</ol>
+
+<h4>Step 1: Declare Outputs in Metadata</h4>
+<pre>
+{
+  "systemlink": {
+    "outputs": [
+      {
+        "id": "result_count",
+        "display_name": "Results Processed",
+        "type": "scalar"
+      },
+      {
+        "id": "error_info",
+        "display_name": "Error Details",
+        "type": "dataframe"
+      }
+    ]
+  }
+}
+</pre>
+
+<h4>Step 2: Import Scrapbook</h4>
+<pre>import scrapbook as sb</pre>
+
+<h4>Step 3: Glue Results at End of Notebook</h4>
+<pre>
+# Define output
+result = [
+    {
+        'id': 'result_count',
+        'type': 'scalar',
+        'data': processed_count
+    },
+    {
+        'id': 'error_info',
+        'type': 'data_frame',
+        'data': {
+            'columns': pd.io.json.build_table_schema(df, index=False)['fields'],
+            'values': df.values.tolist()
+        }
+    }
+]
+sb.glue('result', result)
+</pre>
+
+<h4>Supported Output Types</h4>
+<table>
+    <tr><th>Type</th><th>Use Case</th><th>Data Format</th></tr>
+    <tr><td><code>scalar</code></td><td>Single value</td><td>Direct value (string, number, boolean)</td></tr>
+    <tr><td><code>string[]</code></td><td>List of values</td><td>Python list</td></tr>
+    <tr><td><code>dataframe</code></td><td>Tabular data</td><td>{columns: [...], values: [[...]]}</td></tr>
+</table>
+
+<hr>
+
+<h2 id="examples">3. Complete Examples</h2>
+
+<h3>Example 1: Input Only (File Processing)</h3>
+<p><strong>Use Case:</strong> Process uploaded TDMS files, no outputs needed</p>
+
+<h4>Parameters Cell</h4>
+<pre>
+#parameters
+file_ids = []  # List of file IDs to process
+</pre>
+
+<h4>Metadata</h4>
+<pre>
+{
+  "tags": ["parameters"],
+  "papermill": {
+    "parameters": {
+      "file_ids": []
+    }
+  },
+  "systemlink": {
+    "version": 2,
+    "interfaces": ["ni-files"],
+    "parameters": [
+      {
+        "id": "file_ids",
+        "display_name": "File IDs",
+        "type": "string[]"
+      }
+    ]
+  }
+}
+</pre>
+
+<h3>Example 2: Input and Output (Analysis with Results)</h3>
+<p><strong>Use Case:</strong> Analyze files and return summary statistics</p>
+
+<h4>Parameters Cell</h4>
+<pre>
+#parameters
+file_ids = []
+part_number = ""
+discipline = "Analysis"
+</pre>
+
+<h4>Metadata</h4>
+<pre>
+{
+  "tags": ["parameters"],
+  "papermill": {
+    "parameters": {
+      "file_ids": [],
+      "part_number": "",
+      "discipline": "Analysis"
+    }
+  },
+  "systemlink": {
+    "version": 2,
+    "interfaces": ["ni-files"],
+    "parameters": [
+      {"id": "file_ids", "display_name": "File IDs", "type": "string[]"},
+      {"id": "part_number", "display_name": "Part Number", "type": "string"},
+      {"id": "discipline", "display_name": "Discipline", "type": "string"}
+    ],
+    "outputs": [
+      {"id": "files_processed", "display_name": "Files Processed", "type": "scalar"},
+      {"id": "analysis_results", "display_name": "Analysis Results", "type": "dataframe"}
+    ]
+  }
+}
+</pre>
+
+<h4>Output Cell (at end of notebook)</h4>
+<pre>
+import scrapbook as sb
+import pandas as pd
+
+# Prepare results
+result = [
+    {
+        'id': 'files_processed',
+        'type': 'scalar',
+        'data': len(file_ids)
+    },
+    {
+        'id': 'analysis_results',
+        'type': 'data_frame',
+        'data': {
+            'columns': pd.io.json.build_table_schema(results_df, index=False)['fields'],
+            'values': results_df.values.tolist()
+        }
+    }
+]
+sb.glue('result', result)
+</pre>
+
+<h3>Example 3: Real-World Pattern (TDMS Anomaly Score)</h3>
+<p>Based on <code>TDMS_CalculateAnomalyScore_Demo.ipynb</code>:</p>
+
+<h4>Parameters</h4>
+<table>
+    <tr><th>Parameter</th><th>Type</th><th>Purpose</th></tr>
+    <tr><td><code>file_ids</code></td><td>string[]</td><td>TDMS files to analyze</td></tr>
+    <tr><td><code>part_number</code></td><td>string</td><td>Part identifier</td></tr>
+    <tr><td><code>notebook_id</code></td><td>string</td><td>Self-reference for logging</td></tr>
+    <tr><td><code>discipline</code></td><td>string</td><td>Analysis category</td></tr>
+</table>
+
+<h4>Outputs</h4>
+<table>
+    <tr><th>Output</th><th>Type</th><th>Purpose</th></tr>
+    <tr><td><code>Test Result ID</code></td><td>scalar</td><td>Created test result ID</td></tr>
+    <tr><td><code>Data Table ID</code></td><td>scalar</td><td>Created data table ID</td></tr>
+    <tr><td><code>error_info</code></td><td>dataframe</td><td>Error details if any</td></tr>
+</table>
+
+<hr>
+
+<h2 id="reference">4. Reference</h2>
+
+<h3>Complete Metadata Schema</h3>
+<pre>
+{
+  "tags": ["parameters"],
+  "editable": true,
+  "slideshow": {"slide_type": ""},
+  "papermill": {
+    "parameters": {
+      "&lt;param_id&gt;": "&lt;default_value&gt;"
+    }
+  },
+  "systemlink": {
+    "version": 2,
+    "interfaces": ["&lt;interface_name&gt;"],
+    "parameters": [
+      {
+        "id": "&lt;param_id&gt;",
+        "display_name": "&lt;UI Label&gt;",
+        "type": "&lt;type&gt;"
+      }
+    ],
+    "outputs": [
+      {
+        "id": "&lt;output_id&gt;",
+        "display_name": "&lt;UI Label&gt;",
+        "type": "&lt;type&gt;"
+      }
+    ]
+  }
+}
+</pre>
+
+<h3>Type Reference</h3>
+
+<h4>Parameter Types</h4>
+<table>
+    <tr><th>Type</th><th>JSON</th><th>Python</th><th>Example</th></tr>
+    <tr><td>String</td><td>"string"</td><td>str</td><td>"part_number": "ABC123"</td></tr>
+    <tr><td>String Array</td><td>"string[]"</td><td>list</td><td>"file_ids": ["id1", "id2"]</td></tr>
+    <tr><td>Number</td><td>"number"</td><td>int/float</td><td>"threshold": 0.95</td></tr>
+    <tr><td>Boolean</td><td>"boolean"</td><td>bool</td><td>"verbose": true</td></tr>
+</table>
+
+<h4>Output Types</h4>
+<table>
+    <tr><th>Type</th><th>Format</th><th>Use Case</th></tr>
+    <tr><td>scalar</td><td>Direct value</td><td>Counts, IDs, status</td></tr>
+    <tr><td>string[]</td><td>List</td><td>Multiple IDs, names</td></tr>
+    <tr><td>dataframe</td><td>{columns, values}</td><td>Tabular results</td></tr>
+</table>
+
+<h3>DataFrame Output Format</h3>
+<pre>
+{
+    'id': 'my_dataframe',
+    'type': 'data_frame',
+    'data': {
+        'columns': pd.io.json.build_table_schema(df, index=False)['fields'],
+        'values': df.values.tolist()
+    }
+}
+</pre>
+
+<hr>
+
+<h2 id="troubleshooting">5. Troubleshooting</h2>
+
+<h3>Common Issues</h3>
+<table>
+    <tr><th>Issue</th><th>Cause</th><th>Solution</th></tr>
+    <tr><td>Parameters not injected</td><td>Missing <code>parameters</code> tag</td><td>Add tag to cell metadata</td></tr>
+    <tr><td>Outputs not captured</td><td><code>sb.glue</code> not called</td><td>Add scrapbook glue at end of notebook</td></tr>
+    <tr><td>Type mismatch</td><td>Parameter type doesn't match Python variable</td><td>Ensure consistency between metadata and code</td></tr>
+    <tr><td>Output not visible in UI</td><td>Output ID mismatch</td><td>Ensure id in scrapbook matches metadata id</td></tr>
+</table>
+
+<h3>Debugging Tips</h3>
+<ol>
+    <li><strong>Check cell has correct tag:</strong> In VS Code, verify "parameters" tag is visible</li>
+    <li><strong>Validate JSON metadata:</strong> Use a JSON validator to check syntax</li>
+    <li><strong>Test scrapbook locally:</strong> Run <code>sb.glue('test', {'value': 42})</code> and check output</li>
+    <li><strong>Verify parameter types match:</strong> Metadata says string[], code must use list</li>
+</ol>
+
+<hr>
+
+<h3>Resources</h3>
+<ul>
+    <li><a href="https://papermill.readthedocs.io/en/latest/usage-parameterize.html">Papermill Documentation</a></li>
+    <li><a href="https://nteract-scrapbook.readthedocs.io/">Scrapbook Documentation</a></li>
+    <li><a href="https://github.com/ni/systemlink-enterprise-examples">SystemLink Enterprise Examples</a></li>
+</ul>
+
+<hr>
+
+<h3>Version History</h3>
+<table>
+    <tr><th>Date</th><th>Version</th><th>Changes</th></tr>
+    <tr><td>2026-02-06</td><td>1.0</td><td>Initial release</td></tr>
+</table>
+
+</body>
+</html>
