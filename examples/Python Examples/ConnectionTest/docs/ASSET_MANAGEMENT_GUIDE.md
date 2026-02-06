@@ -229,6 +229,8 @@ curl -s -H "X-NI-API-KEY: $SYSTEMLINK_API_KEY" \
 ## Related Resources
 
 - [Asset Utilization Example](../../Asset%20Utilization/Utilization%20to%20Tags%20SLE.ipynb)
+- [DataFrame API Guide](DATAFRAME_API_GUIDE.md) - Query data tables for analysis
+- [Notification API Guide](NOTIFICATION_API_GUIDE.md) - Send email reports  
 - [SystemLink API Documentation](https://www.ni.com/docs/en-US/bundle/systemlink-enterprise/)
 - [Swagger UI](https://your-api-server.com/niapis/) - Interactive API explorer
 

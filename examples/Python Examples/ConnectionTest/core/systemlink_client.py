@@ -75,12 +75,32 @@ class _RateLimiter:
 
 _retry_decorator = _create_retry_decorator()
 
+# Determine .env file location (check config/ folder first, then current directory)
+def _find_env_file():
+    """Find .env file in config/ folder or current directory."""
+    import pathlib
+    # Check relative to this module (core/../config/.env)
+    module_dir = pathlib.Path(__file__).parent
+    config_env = module_dir.parent / "config" / ".env"
+    if config_env.exists():
+        return str(config_env)
+    # Check current working directory
+    cwd_env = pathlib.Path.cwd() / ".env"
+    if cwd_env.exists():
+        return str(cwd_env)
+    # Check config/ relative to cwd
+    cwd_config_env = pathlib.Path.cwd() / "config" / ".env"
+    if cwd_config_env.exists():
+        return str(cwd_config_env)
+    return None  # Let load_dotenv use its default behavior
+
 
 class SystemLinkClient:
     """Base client for SystemLink Enterprise APIs."""
 
     def __init__(self, base_url: Optional[str] = None, api_key: Optional[str] = None):
-        load_dotenv()
+        env_file = _find_env_file()
+        load_dotenv(env_file)
         self.base_url = (base_url or os.getenv("SYSTEMLINK_API_URL", "")).rstrip("/")
         self.api_key = api_key or os.getenv("SYSTEMLINK_API_KEY", "")
         
@@ -286,8 +306,7 @@ class TestMonitorClient(SystemLinkClient):
         """Get recent failed test results."""
         result = self.query_results(
             filter='status.statusType == "FAILED"',
-            take=limit,
-            order_by="STARTED_AT_DESC"
+            take=limit
         )
         return result.get("results", [])
 
@@ -323,24 +342,33 @@ class NotificationClient(SystemLinkClient):
     """Client for Notification API (/ninotification)."""
 
     def send_email(self, to: List[str], subject: str, body: str,
-                   cc: Optional[List[str]] = None, 
-                   content_type: str = "text/plain") -> bool:
+                   cc: Optional[List[str]] = None) -> bool:
         """Send an email notification."""
+        address_fields = {"toAddresses": to}
+        if cc:
+            address_fields["ccAddresses"] = cc
+        
         data = {
-            "addressGroupDefinition": {
-                "addresses": [{"type": "email", "value": addr} for addr in to]
-            },
-            "messageTemplateDefinition": {
-                "subjectTemplate": subject,
-                "bodyTemplate": body,
-                "bodyType": content_type
+            "notificationStrategy": {
+                "notificationConfigurations": [
+                    {
+                        "addressGroup": {
+                            "interpretingServiceName": "smtp",
+                            "displayName": "Dynamic Recipients",
+                            "fields": address_fields
+                        },
+                        "messageTemplate": {
+                            "interpretingServiceName": "smtp",
+                            "displayName": "Dynamic Message",
+                            "fields": {
+                                "subjectTemplate": subject,
+                                "bodyTemplate": body
+                            }
+                        }
+                    }
+                ]
             }
         }
-        
-        if cc:
-            data["addressGroupDefinition"]["addresses"].extend(
-                [{"type": "email", "value": addr, "cc": True} for addr in cc]
-            )
         
         resp = self.session.post(
             f"{self.base_url}/ninotification/v1/apply-dynamic-strategy",
@@ -350,7 +378,164 @@ class NotificationClient(SystemLinkClient):
 
     def send_html_email(self, to: List[str], subject: str, html_body: str) -> bool:
         """Send an HTML email."""
-        return self.send_email(to, subject, html_body, content_type="text/html")
+        return self.send_email(to, subject, html_body)
+
+
+class DataFrameClient(SystemLinkClient):
+    """Client for DataFrame API (/nidataframe).
+    
+    Reads and writes data tables (DataFrames) in SystemLink.
+    Handles type conversion for numpy/pandas types.
+    """
+
+    def query_tables(self, filter: Optional[str] = None, take: int = 100,
+                     workspace: Optional[str] = None) -> Dict:
+        """Query available data tables."""
+        body = {"take": take}
+        if filter:
+            body["filter"] = filter
+        if workspace:
+            body["filter"] = f'workspace == "{workspace}"' + (f" && {filter}" if filter else "")
+        return self._post("/nidataframe/v1/query-tables", body)
+
+    def get_table(self, table_id: str) -> Dict:
+        """Get table metadata by ID."""
+        return self._get(f"/nidataframe/v1/tables/{table_id}")
+
+    def query_data(self, table_id: str, take: int = 1000,
+                   filters: Optional[List[Dict]] = None,
+                   order_by: Optional[List[Dict]] = None,
+                   continuation_token: Optional[str] = None) -> Dict:
+        """Query table data with pagination.
+        
+        Args:
+            table_id: The table ID
+            take: Number of rows to fetch (max ~2000)
+            filters: List of filter dicts like {"column": "name", "operation": "EQUALS", "value": "x"}
+            order_by: List of order dicts like {"column": "col", "descending": True}
+            continuation_token: Token for pagination
+            
+        Returns:
+            Dict with 'frame' (columns, data), 'totalRowCount', 'continuationToken'
+        """
+        body = {"take": take}
+        if filters:
+            body["filters"] = filters
+        if order_by:
+            body["orderBy"] = order_by
+        if continuation_token:
+            body["continuationToken"] = continuation_token
+        return self._post(f"/nidataframe/v1/tables/{table_id}/query-data", body)
+
+    def iter_table_data(self, table_id: str, batch_size: int = 2000,
+                        filters: Optional[List[Dict]] = None,
+                        order_by: Optional[List[Dict]] = None) -> Iterator[List]:
+        """Iterate through all table rows (memory-efficient).
+        
+        Yields rows as lists. Use get_table() to get column names.
+        """
+        continuation_token = None
+        while True:
+            result = self.query_data(
+                table_id, take=batch_size, filters=filters,
+                order_by=order_by, continuation_token=continuation_token
+            )
+            rows = result.get("frame", {}).get("data", [])
+            logger.debug(f"iter_table_data: fetched {len(rows)} rows")
+            for row in rows:
+                yield row
+            continuation_token = result.get("continuationToken")
+            if not continuation_token:
+                break
+
+    def get_all_data(self, table_id: str, batch_size: int = 2000,
+                     filters: Optional[List[Dict]] = None) -> Dict:
+        """Get all table data as a dict with columns and data.
+        
+        Returns:
+            Dict with 'columns' (list of names) and 'data' (list of row lists)
+        """
+        # Get column names first
+        meta = self.get_table(table_id)
+        columns = [c["name"] for c in meta.get("columns", [])]
+        
+        # Collect all rows
+        all_rows = list(self.iter_table_data(table_id, batch_size, filters))
+        
+        return {"columns": columns, "data": all_rows, "metadata": meta}
+
+    def to_dataframe(self, table_id: str, batch_size: int = 2000,
+                     filters: Optional[List[Dict]] = None):
+        """Load table data as a pandas DataFrame.
+        
+        Requires pandas to be installed.
+        """
+        try:
+            import pandas as pd
+        except ImportError:
+            raise ImportError("pandas is required for to_dataframe(). Install with: pip install pandas")
+        
+        data = self.get_all_data(table_id, batch_size, filters)
+        return pd.DataFrame(data["data"], columns=data["columns"])
+
+    def get_table_by_name(self, name: str, workspace: Optional[str] = None) -> Optional[Dict]:
+        """Find a table by name (returns first match)."""
+        filter_str = f'name == "{name}"'
+        if workspace:
+            filter_str = f'workspace == "{workspace}" && {filter_str}'
+        result = self.query_tables(filter=filter_str, take=1)
+        tables = result.get("tables", [])
+        return tables[0] if tables else None
+
+    def summary(self, table_id: str, sample_size: int = 500) -> Dict:
+        """Get summary statistics for a table."""
+        meta = self.get_table(table_id)
+        columns = meta.get("columns", [])
+        row_count = meta.get("rowCount", 0)
+        
+        # Sample data for statistics
+        result = self.query_data(table_id, take=sample_size)
+        rows = result.get("frame", {}).get("data", [])
+        col_names = result.get("frame", {}).get("columns", [])
+        
+        # Find numeric columns for stats
+        numeric_cols = [c for c in columns if c.get("dataType") in 
+                       ("INT32", "INT64", "FLOAT32", "FLOAT64")]
+        
+        numeric_stats = {}
+        for col in numeric_cols:
+            col_idx = col_names.index(col["name"]) if col["name"] in col_names else -1
+            if col_idx >= 0:
+                values = []
+                for row in rows:
+                    try:
+                        val = float(row[col_idx])
+                        values.append(val)
+                    except (ValueError, TypeError):
+                        pass
+                if values:
+                    n = len(values)
+                    mean_val = sum(values) / n
+                    if n > 1:
+                        variance = sum((x - mean_val) ** 2 for x in values) / (n - 1)
+                        std_val = variance ** 0.5
+                    else:
+                        std_val = 0.0
+                    numeric_stats[col["name"]] = {
+                        "count": n,
+                        "mean": mean_val,
+                        "std": std_val,
+                        "min": min(values),
+                        "max": max(values)
+                    }
+        
+        return {
+            "name": meta.get("name"),
+            "row_count": row_count,
+            "column_count": len(columns),
+            "columns": [{"name": c["name"], "type": c["dataType"]} for c in columns],
+            "numeric_stats": numeric_stats
+        }
 
 
 # Convenience functions for quick usage
@@ -365,6 +550,10 @@ def get_testmonitor_client() -> TestMonitorClient:
 def get_notification_client() -> NotificationClient:
     """Get a Notification client."""
     return NotificationClient()
+
+def get_dataframe_client() -> DataFrameClient:
+    """Get a DataFrame (Data Tables) client."""
+    return DataFrameClient()
 
 
 if __name__ == "__main__":

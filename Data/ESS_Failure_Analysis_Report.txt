@@ -1,0 +1,59 @@
+ESS Parts Failure Analysis Report
+Generated: 2026-02-06 11:24:12
+======================================================================
+
+EXECUTIVE SUMMARY
+-----------------
+The ESS parts (ESS-567, ESS-568, ESS-569) show a consistent ~25% failure rate
+across all dimensions analyzed. This suggests a systematic issue in the test
+program rather than specific parts, operators, or equipment.
+
+OVERALL STATISTICS
+------------------
+Total ESS Tests: 6,005
+Passed: 1,478
+Failed: 1,535
+Overall Failure Rate: 25.6%
+
+FAILURE RATE BY PART NUMBER
+---------------------------
+ESS-567: 548 / 2,118 = 25.9%
+ESS-568: 482 / 1,942 = 24.8%
+ESS-569: 505 / 1,945 = 26.0%
+
+FAILURE RATE BY OPERATOR
+------------------------
+APerin: 425 / 1,489 = 28.5% <-- HIGHEST
+RayInda: 370 / 1,449 = 25.5%
+MSchim: 350 / 1,518 = 23.1%
+KanC: 371 / 1,459 = 25.4%
+
+FAILURE RATE BY TEST BAY
+------------------------
+NI BTS Bay 1: 499 / 2,045 = 24.4%
+NI BTS Bay 2: 520 / 1,994 = 26.1%
+NI BTS Bay 3: 516 / 1,966 = 26.2%
+
+FAILURE RATE BY SERIAL NUMBER
+-----------------------------
+429-761: 520 / 2,034 = 25.6%
+568-122: 479 / 1,924 = 24.9%
+466-778: 516 / 1,955 = 26.4%
+
+KEY FINDINGS
+------------
+1. No single root cause - failures evenly distributed across all dimensions
+2. Slight operator variance: APerin (28.5%) vs MSchim (23.1%) = 5.4% delta
+3. All 3 ESS parts have nearly identical failure rates (~25%)
+4. All 3 test bays have similar failure rates (24-26%)
+5. All 3 serial numbers have similar failure rates (25-26%)
+
+RECOMMENDATIONS
+---------------
+1. Review test limits in HPPC Battery Analytics Dashboard program
+2. Investigate if 25% failure rate is acceptable for this test type
+3. Monitor operator APerin for potential training opportunity
+4. Check if test specification matches product requirements
+
+======================================================================
+End of Report

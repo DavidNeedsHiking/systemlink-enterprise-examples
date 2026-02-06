@@ -43,6 +43,20 @@ This table lists all available APIs from the SystemLink Enterprise swagger UI an
 - **APIs with examples:** 14
 - **APIs without examples:** 16
 
+## Python Client Library
+
+A reusable Python wrapper for SystemLink APIs is available at:
+[systemlink_client.py](../../examples/Python%20Examples/ConnectionTest/systemlink_client.py)
+
+Supported APIs:
+- **AssetClient** - Asset Management (`/niapm`)
+- **TestMonitorClient** - Test Monitor (`/nitestmonitor`)
+- **NotificationClient** - Notification (`/ninotification`)
+
+Features: Retry logic, rate limiting, logging, context managers, generators.
+
+See [API_WRAPPER_GUIDE.md](../../examples/Python%20Examples/ConnectionTest/API_WRAPPER_GUIDE.md) for extension guide.
+
 ## Swagger UI
 
 The full API documentation is available at: `https://test-api.lifecyclesolutions.ni.com/niapis/`

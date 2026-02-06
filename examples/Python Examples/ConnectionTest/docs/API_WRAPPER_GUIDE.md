@@ -12,12 +12,12 @@ A guide for creating reusable Python wrappers for SystemLink REST APIs.
 │  - HTTP methods: _get(), _post(), _delete()             │
 └─────────────────────────────────────────────────────────┘
                           │
-          ┌───────────────┼───────────────┐
-          ▼               ▼               ▼
-   ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
-   │ AssetClient │ │TestMonitor  │ │Notification │
-   │             │ │   Client    │ │   Client    │
-   └─────────────┘ └─────────────┘ └─────────────┘
+     ┌────────────┬───────┴───────┬────────────┐
+     ▼            ▼               ▼            ▼
+┌─────────┐ ┌───────────┐ ┌────────────┐ ┌───────────┐
+│ Asset   │ │TestMonitor│ │Notification│ │ DataFrame │
+│ Client  │ │  Client   │ │   Client   │ │  Client   │
+└─────────┘ └───────────┘ └────────────┘ └───────────┘
 ```
 
 ## Step-by-Step: Adding a New API
@@ -145,9 +145,24 @@ def _get(self, endpoint: str, params: Optional[Dict] = None) -> Dict:
 
 ---
 
+## Improvement Status
+
+| Feature | Status | Phase |
+|---------|--------|-------|
+| Logging | ✅ Implemented | 1 |
+| Generators (`iter_all`) | ✅ Implemented | 1 |
+| Context Managers | ✅ Implemented | 1 |
+| Retry with Backoff | ✅ Implemented | 2 |
+| Rate Limiting | ✅ Implemented | 2 |
+| Response Caching | 🔲 Planned | 3 |
+| Dataclasses/Types | 🔲 Planned | 4 |
+| Async Support | 🔲 Planned | 4 |
+
+---
+
 ## Suggested Improvements
 
-### 1. **Add Retry Logic with Exponential Backoff**
+### 1. **Add Retry Logic with Exponential Backoff** ✅ IMPLEMENTED
 
 ```python
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -197,7 +212,7 @@ async def main():
     assets = await client.query()
 ```
 
-### 4. **Add Logging**
+### 4. **Add Logging** ✅ IMPLEMENTED
 
 ```python
 import logging
@@ -246,7 +261,7 @@ class AssetClient(SystemLinkClient):
         return Asset.from_dict(data)
 ```
 
-### 6. **Add Pagination with Generators**
+### 6. **Add Pagination with Generators** ✅ IMPLEMENTED
 
 ```python
 def iter_all(self, filter: Optional[str] = None, batch_size: int = 500):
@@ -266,7 +281,7 @@ for asset in client.iter_all(filter='vendorName == "NI"'):
     process(asset)
 ```
 
-### 7. **Add Context Manager Support**
+### 7. **Add Context Manager Support** ✅ IMPLEMENTED
 
 ```python
 class SystemLinkClient:
@@ -281,7 +296,7 @@ with AssetClient() as client:
     assets = client.query()
 ```
 
-### 8. **Add Rate Limiting**
+### 8. **Add Rate Limiting** ✅ IMPLEMENTED
 
 ```python
 from ratelimit import limits, sleep_and_retry
@@ -301,22 +316,154 @@ class SystemLinkClient:
 
 | Client | Import | Key Methods |
 |--------|--------|-------------|
-| `AssetClient` | `from systemlink_client import get_asset_client` | `query()`, `count()`, `get_overdue_calibration()`, `summary()` |
-| `TestMonitorClient` | `from systemlink_client import get_testmonitor_client` | `query_results()`, `query_steps()`, `get_failed_results()`, `summary()` |
+| `AssetClient` | `from systemlink_client import get_asset_client` | `query()`, `count()`, `iter_all()`, `get_overdue_calibration()`, `summary()` |
+| `TestMonitorClient` | `from systemlink_client import get_testmonitor_client` | `query_results()`, `iter_results()`, `query_steps()`, `get_failed_results()`, `summary()` |
 | `NotificationClient` | `from systemlink_client import get_notification_client` | `send_email()`, `send_html_email()` |
+| `DataFrameClient` | `from systemlink_client import get_dataframe_client` | `query_tables()`, `query_data()`, `iter_table_data()`, `get_all_data()`, `to_dataframe()`, `summary()` |
+
+### Built-in Features (All Clients)
+
+| Feature | Description | Requires |
+|---------|-------------|----------|
+| Logging | `import logging; logging.basicConfig(level=logging.INFO)` | stdlib |
+| Context Manager | `with AssetClient() as c:` | stdlib |
+| Retry (3x) | Automatic on connection errors/timeouts | `pip install tenacity` |
+| Rate Limit | 60 calls/min, auto-waits | `pip install ratelimit` |
+
+---
+
+## DataFrame API (Data Tables)
+
+The `DataFrameClient` provides access to SystemLink Data Tables (DataFrame API), which stores tabular data with support for filtering, sorting, and pagination.
+
+### Key Concepts
+
+| Concept | Description |
+|---------|-------------|
+| **Tables** | Named data containers with columns and rows |
+| **Workspaces** | Logical containers; tables belong to workspaces |
+| **query-data** | POST endpoint for reading data (not GET /data which returns 500) |
+| **continuationToken** | Pagination token for large datasets |
+
+### Basic Usage
+
+```python
+from systemlink_client import get_dataframe_client
+
+df_client = get_dataframe_client()
+
+# List tables in a workspace
+tables = df_client.query_tables(
+    workspace="ee940aa2-05d3-4585-a822-52f7234a5207"
+)
+for t in tables:
+    print(f"{t['name']}: {t['rowCount']} rows, {len(t['columns'])} cols")
+
+# Get table by name
+table = df_client.get_table_by_name(
+    name="AnomalyScore",
+    workspace="ee940aa2-05d3-4585-a822-52f7234a5207"
+)
+table_id = table["id"]
+
+# Read all data as pandas DataFrame
+df = df_client.to_dataframe(table_id)
+print(df.describe())
+
+# Get statistical summary
+summary = df_client.summary(table_id)
+print(f"Rows: {summary['total_rows']}")
+print(f"Columns: {summary['columns']}")
+```
+
+### Data Query with Filters and Sorting
+
+```python
+# Query with filters and ordering
+data = df_client.query_data(
+    table_id=table_id,
+    take=1000,
+    filters=[
+        {"column": "Status", "operation": "EQUALS", "value": "PASS"},
+        {"column": "Temperature", "operation": "GREATER_THAN", "value": "25"}
+    ],
+    order_by=[
+        {"column": "StartTime", "descending": True}
+    ]
+)
+
+# Iterate through large tables efficiently
+for batch in df_client.iter_table_data(table_id, batch_size=2000):
+    # batch contains: columns, data, totalRowCount, continuationToken
+    for row in batch["data"]:
+        process(row)
+```
+
+### Filter Operations
+
+| Operation | Description | Example |
+|-----------|-------------|---------|
+| `EQUALS` | Exact match | `{"column": "Status", "operation": "EQUALS", "value": "PASS"}` |
+| `NOT_EQUALS` | Not equal | `{"column": "Type", "operation": "NOT_EQUALS", "value": "None"}` |
+| `GREATER_THAN` | > comparison | `{"column": "Score", "operation": "GREATER_THAN", "value": "0.5"}` |
+| `LESS_THAN` | < comparison | `{"column": "Count", "operation": "LESS_THAN", "value": "100"}` |
+| `CONTAINS` | String contains | `{"column": "Name", "operation": "CONTAINS", "value": "test"}` |
+
+### Type Conversion Notes
+
+The API returns all values as strings. Use pandas for type conversion:
+
+```python
+import pandas as pd
+
+df = df_client.to_dataframe(table_id)
+
+# Convert numeric columns
+for col in ['Score', 'Temperature', 'Count']:
+    if col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+
+# Convert datetime columns
+if 'StartTime' in df.columns:
+    df['StartTime'] = pd.to_datetime(df['StartTime'], errors='coerce')
+
+# Check dtypes
+print(df.dtypes)
+```
+
+### API Endpoint Notes
+
+| Endpoint | Status | Notes |
+|----------|--------|-------|
+| `POST /tables/{id}/query-data` | ✅ Works | Primary read endpoint with filters/pagination |
+| `GET /tables/{id}/data` | ❌ 500 | Returns `DataFrame.RowDataReaderError` |
+| `POST /export-data` | ❌ 500 | Not functional |
+| `GET /tables` | ✅ Works | List/query tables |
+| `POST /query-tables` | ✅ Works | Query tables with filters |
+
+---
 
 ## Example: Complete Workflow
 
 ```python
-from systemlink_client import get_asset_client, get_testmonitor_client, get_notification_client
+from systemlink_client import (
+    get_asset_client, get_testmonitor_client, 
+    get_notification_client, get_dataframe_client
+)
 
 # Get overdue calibrations and recent failures
 assets = get_asset_client()
 tm = get_testmonitor_client()
 notif = get_notification_client()
+df_client = get_dataframe_client()
 
 overdue = assets.get_overdue_calibration()
 failures = tm.get_failed_results(limit=10)
+
+# Get anomaly data from Data Tables
+table = df_client.get_table_by_name("AnomalyScore", workspace="your-workspace-id")
+anomaly_df = df_client.to_dataframe(table["id"])
+anomaly_count = len(anomaly_df[anomaly_df["PassUSL"] == "FAIL"])
 
 # Build and send report
 report = f"""
@@ -324,6 +471,7 @@ Daily Status Report
 ===================
 Overdue Calibrations: {len(overdue)}
 Recent Test Failures: {len(failures)}
+Anomaly Failures: {anomaly_count}
 
 Top 5 Overdue Assets:
 {chr(10).join(f"- {a['name']}" for a in overdue[:5])}

@@ -275,6 +275,7 @@ curl -s "$SYSTEMLINK_API_URL/ninotification/swagger/v1/ninotification.json" | \
 
 - [Notification API Swagger](https://your-api-server.com/niapis/) - Select "Notification" from dropdown
 - [Asset Management Guide](ASSET_MANAGEMENT_GUIDE.md) - Query assets for reports
+- [DataFrame API Guide](DATAFRAME_API_GUIDE.md) - Query data tables for analysis
 - [SystemLink Documentation](https://www.ni.com/docs/en-US/bundle/systemlink-enterprise/)
 
 ---

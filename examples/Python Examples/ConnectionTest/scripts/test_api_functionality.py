@@ -22,10 +22,17 @@ from typing import Tuple, Optional, Dict, Any, List
 from colorama import init, Fore, Style
 from datetime import datetime
 
-# Load environment variables from .env file if it exists
+# Load environment variables from .env file (check config/ folder first)
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    from pathlib import Path
+    # Check config/.env relative to this script's parent folder
+    script_dir = Path(__file__).parent
+    config_env = script_dir.parent / "config" / ".env"
+    if config_env.exists():
+        load_dotenv(config_env)
+    else:
+        load_dotenv()  # Default behavior
 except ImportError:
     pass
 
