@@ -119,6 +119,7 @@ tailored to that specific example.
 
 - [SystemLink Enterprise Documentation](https://www.ni.com/docs/en-US/bundle/systemlink-enterprise/)
 - [Creating an API Key](https://www.ni.com/docs/en-US/bundle/systemlink-enterprise/page/creating-an-api-key.html)
+- [Available APIs Overview](Data/Table/SystemLink_APIs.md) - List of all SystemLink APIs with links to examples *(static, may be outdated)*
 
 ## Support
 

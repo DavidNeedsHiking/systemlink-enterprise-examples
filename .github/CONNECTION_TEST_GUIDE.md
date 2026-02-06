@@ -2,6 +2,8 @@
 
 This guide explains how to use the Python connection test scripts to verify connectivity to your SystemLink Enterprise server.
 
+> **See also:** [Available APIs Overview](../Data/Table/SystemLink_APIs.md) - Complete list of all 30 SystemLink APIs with links to examples *(static, may be outdated)*
+
 ## Overview
 
 The `ConnectionTest` folder contains scripts to test API connectivity and verify your configuration before running other examples in this repository.
