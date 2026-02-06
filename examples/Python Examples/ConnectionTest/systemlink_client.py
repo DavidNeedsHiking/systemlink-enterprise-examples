@@ -7,15 +7,73 @@ Supports: Asset Management, Test Monitor, Notification, and generic API calls.
 
 import os
 import json
+import logging
 from datetime import datetime, timezone, timedelta
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Iterator
 from dotenv import load_dotenv
+
+# Configure module logger
+logger = logging.getLogger("systemlink")
+logger.addHandler(logging.NullHandler())  # No output unless user configures logging
 
 try:
     import requests
 except ImportError:
     print("Install requests: pip install requests")
     raise
+
+# Optional: retry with exponential backoff
+try:
+    from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+    TENACITY_AVAILABLE = True
+except ImportError:
+    TENACITY_AVAILABLE = False
+    logger.debug("tenacity not installed - retry disabled")
+
+# Optional: rate limiting
+try:
+    from ratelimit import limits, sleep_and_retry
+    RATELIMIT_AVAILABLE = True
+except ImportError:
+    RATELIMIT_AVAILABLE = False
+    logger.debug("ratelimit not installed - rate limiting disabled")
+
+
+# Retry configuration: 3 attempts with exponential backoff (1s, 2s, 4s)
+def _create_retry_decorator():
+    """Create retry decorator if tenacity is available."""
+    if TENACITY_AVAILABLE:
+        return retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=1, max=10),
+            retry=retry_if_exception_type((requests.exceptions.ConnectionError,
+                                           requests.exceptions.Timeout)),
+            before_sleep=lambda retry_state: logger.warning(
+                f"Retry {retry_state.attempt_number}/3 after error: {retry_state.outcome.exception()}"
+            )
+        )
+    return lambda func: func  # No-op decorator
+
+
+# Rate limit configuration: 60 calls per minute (1 per second average)
+class _RateLimiter:
+    """Simple rate limiter using ratelimit library if available."""
+    _limiter = None
+    
+    @classmethod
+    def wait(cls):
+        """Wait if rate limit reached. No-op if ratelimit not installed."""
+        if cls._limiter is None and RATELIMIT_AVAILABLE:
+            @sleep_and_retry
+            @limits(calls=60, period=60)
+            def _limited():
+                pass
+            cls._limiter = _limited
+        if cls._limiter:
+            cls._limiter()
+
+
+_retry_decorator = _create_retry_decorator()
 
 
 class SystemLinkClient:
@@ -34,22 +92,73 @@ class SystemLinkClient:
             "X-NI-API-KEY": self.api_key,
             "Content-Type": "application/json"
         })
+        logger.debug(f"Initialized client for {self.base_url}")
+
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit - close session."""
+        self.close()
+        return False
+
+    def close(self):
+        """Close the HTTP session."""
+        self.session.close()
+        logger.debug("Session closed")
+
+    def _make_request_impl(self, method: str, endpoint: str, 
+                           params: Optional[Dict] = None, data: Optional[Dict] = None) -> requests.Response:
+        """Internal method to make HTTP request."""
+        url = f"{self.base_url}{endpoint}"
+        
+        if method == "GET":
+            resp = self.session.get(url, params=params)
+        elif method == "POST":
+            resp = self.session.post(url, json=data)
+        elif method == "DELETE":
+            resp = self.session.delete(url)
+        else:
+            raise ValueError(f"Unsupported method: {method}")
+        
+        return resp
+
+    def _make_request(self, method: str, endpoint: str,
+                      params: Optional[Dict] = None, data: Optional[Dict] = None) -> requests.Response:
+        """HTTP request with retry and rate limiting."""
+        # Apply rate limiting (waits if limit reached)
+        _RateLimiter.wait()
+        
+        if TENACITY_AVAILABLE:
+            # Apply retry for connection errors and timeouts
+            @_retry_decorator
+            def _with_retry():
+                return self._make_request_impl(method, endpoint, params, data)
+            return _with_retry()
+        return self._make_request_impl(method, endpoint, params, data)
 
     def _get(self, endpoint: str, params: Optional[Dict] = None) -> Dict:
         """GET request to API endpoint."""
-        resp = self.session.get(f"{self.base_url}{endpoint}", params=params)
+        logger.debug(f"GET {endpoint} params={params}")
+        resp = self._make_request("GET", endpoint, params=params)
+        logger.info(f"GET {endpoint} -> {resp.status_code}")
         resp.raise_for_status()
         return resp.json() if resp.text else {}
 
     def _post(self, endpoint: str, data: Dict) -> Dict:
         """POST request to API endpoint."""
-        resp = self.session.post(f"{self.base_url}{endpoint}", json=data)
+        logger.debug(f"POST {endpoint}")
+        resp = self._make_request("POST", endpoint, data=data)
+        logger.info(f"POST {endpoint} -> {resp.status_code}")
         resp.raise_for_status()
         return resp.json() if resp.text else {}
 
     def _delete(self, endpoint: str) -> bool:
         """DELETE request to API endpoint."""
-        resp = self.session.delete(f"{self.base_url}{endpoint}")
+        logger.debug(f"DELETE {endpoint}")
+        resp = self._make_request("DELETE", endpoint)
+        logger.info(f"DELETE {endpoint} -> {resp.status_code}")
         resp.raise_for_status()
         return resp.status_code in (200, 204)
 
@@ -69,16 +178,20 @@ class AssetClient(SystemLinkClient):
 
     def get_all(self, filter: Optional[str] = None, batch_size: int = 1000) -> List[Dict]:
         """Get all assets matching filter (handles pagination)."""
-        all_assets = []
+        return list(self.iter_all(filter=filter, batch_size=batch_size))
+
+    def iter_all(self, filter: Optional[str] = None, batch_size: int = 1000) -> Iterator[Dict]:
+        """Iterate through all assets matching filter (memory-efficient)."""
         skip = 0
         while True:
             result = self.query(filter=filter, take=batch_size, skip=skip)
             assets = result.get("assets", [])
-            all_assets.extend(assets)
+            logger.debug(f"iter_all: fetched {len(assets)} assets at skip={skip}")
+            for asset in assets:
+                yield asset
             if len(assets) < batch_size:
                 break
             skip += batch_size
-        return all_assets
 
     def get_by_id(self, asset_id: str) -> Dict:
         """Get single asset by ID."""
@@ -136,8 +249,16 @@ class TestMonitorClient(SystemLinkClient):
     def get_all_results(self, filter: Optional[str] = None, batch_size: int = 500, 
                         max_results: int = 10000) -> List[Dict]:
         """Get test results matching filter (up to max_results)."""
+        return list(self.iter_results(filter=filter, max_results=max_results))
+
+    def iter_results(self, filter: Optional[str] = None, batch_size: int = 500,
+                     max_results: int = 10000) -> Iterator[Dict]:
+        """Iterate through test results matching filter (memory-efficient)."""
         result = self.query_results(filter=filter, take=min(batch_size, max_results))
-        return result.get("results", [])
+        results = result.get("results", [])
+        logger.debug(f"iter_results: fetched {len(results)} results")
+        for r in results:
+            yield r
 
     def count_results(self, filter: Optional[str] = None) -> int:
         """Count test results matching filter."""
@@ -250,14 +371,24 @@ if __name__ == "__main__":
     # Quick demo
     print("=== SystemLink Client Demo ===\n")
     
+    # Enable logging to see API calls (optional - remove for production)
+    # logging.basicConfig(level=logging.DEBUG)
+    
     try:
-        # Asset summary
-        assets = get_asset_client()
-        print("Asset Summary:", assets.summary())
+        # Using context manager (auto-closes session)
+        with AssetClient() as assets:
+            print("Asset Summary:", assets.summary())
+            
+            # Demo: iterate first 3 assets (memory-efficient)
+            print("\nFirst 3 assets (via generator):")
+            for i, asset in enumerate(assets.iter_all()):
+                if i >= 3:
+                    break
+                print(f"  - {asset.get('name', 'Unknown')}")
         
         # Test Monitor summary
-        tm = get_testmonitor_client()
-        print("\nTest Monitor Summary:", tm.summary(sample_size=100))
+        with TestMonitorClient() as tm:
+            print("\nTest Monitor Summary:", tm.summary(sample_size=100))
         
     except Exception as e:
         print(f"Error: {e}")
