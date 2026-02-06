@@ -1,0 +1,8 @@
+# Local environment files with secrets
+.env
+.env.local
+.env.*.local
+
+# Python virtual environment
+.venv/
+venv/
